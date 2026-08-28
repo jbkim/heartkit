@@ -1,0 +1,13 @@
+{
+    "datasets": [{
+        "name": "ptbxl",
+        "params": {
+            "path": "./datasets/ptbxl"
+        }
+    }, {
+        "name": "lsad",
+        "params": {
+            "path": "./datasets/lsad"
+        }
+    }]
+}
