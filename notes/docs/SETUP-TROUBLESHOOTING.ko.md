@@ -9,7 +9,7 @@
 
 1. macOS에서는 `uv sync` 가 **깨진 GPU 플러그인(`tensorflow-metal`)** 을 같이 설치해서, `heartkit --help` 조차 실행되지 않습니다.
 2. 플러그인을 지우면 해결됩니다: `uv pip uninstall --python .venv/bin/python tensorflow-metal`
-3. 잘 고쳐졌는지는 [configs/smoke-test.json](configs/smoke-test.json) 으로 `train → evaluate → export` 를 1분 안에 돌려서 확인합니다.
+3. 잘 고쳐졌는지는 [configs/smoke-test.json](../configs/smoke-test.json) 으로 `train → evaluate → export` 를 1분 안에 돌려서 확인합니다.
 
 ---
 
@@ -56,7 +56,7 @@ dlopen(.../site-packages/tensorflow-plugins/libmetal_plugin.dylib, 0x0006):
 
 ## 3. 원인 — TensorFlow와 metal 플러그인의 버전 불일치
 
-[pyproject.toml](pyproject.toml) 은 macOS일 때 GPU 가속 패키지를 자동으로 설치합니다.
+[pyproject.toml](../../pyproject.toml) 은 macOS일 때 GPU 가속 패키지를 자동으로 설치합니다.
 
 ```toml
 "tensorflow>=2.20.0,<3.0",
@@ -121,12 +121,12 @@ uv sync --no-install-package tensorflow-metal
 
 문서의 `heartkit -m evaluate ...` 예제는 **이미 학습된 모델과 내려받은 데이터셋이 있어야** 동작합니다. 맨바닥에서 바로 `evaluate` 를 실행하면 실패하는 게 정상입니다.
 
-그래서 다운로드가 필요 없는 **합성 ECG 데이터셋(`ecg-synthetic`)** 으로 파이프라인 전체를 점검하는 설정을 [configs/smoke-test.json](configs/smoke-test.json) 에 만들어 두었습니다. 실제 데이터셋(`ptbxl`, `lsad` 등)은 수 GB라 받는 데 오래 걸리지만, 합성 데이터는 코드가 그 자리에서 생성합니다.
+그래서 다운로드가 필요 없는 **합성 ECG 데이터셋(`ecg-synthetic`)** 으로 파이프라인 전체를 점검하는 설정을 [configs/smoke-test.json](../configs/smoke-test.json) 에 만들어 두었습니다. 실제 데이터셋(`ptbxl`, `lsad` 등)은 수 GB라 받는 데 오래 걸리지만, 합성 데이터는 코드가 그 자리에서 생성합니다.
 
 ### 5-1. 학습 (약 25초)
 
 ```bash
-heartkit -m train -t segmentation -c ./configs/smoke-test.json
+heartkit -m train -t segmentation -c ./notes/configs/smoke-test.json
 ```
 
 ```
@@ -140,7 +140,7 @@ INFO     #FINISHED MODE=train TASK=segmentation
 ### 5-2. 평가
 
 ```bash
-heartkit -m evaluate -t segmentation -c ./configs/smoke-test.json
+heartkit -m evaluate -t segmentation -c ./notes/configs/smoke-test.json
 ```
 
 ```
@@ -151,7 +151,7 @@ INFO     #FINISHED MODE=evaluate TASK=segmentation
 ### 5-3. 내보내기 (TFLite / TFLM 변환)
 
 ```bash
-heartkit -m export -t segmentation -c ./configs/smoke-test.json
+heartkit -m export -t segmentation -c ./notes/configs/smoke-test.json
 ```
 
 ```
@@ -212,7 +212,7 @@ heartkit -m     [MODE] -t     [TASK] -c      [CONFIG]
 | `CONFIG` | JSON 파일 경로, 또는 JSON 문자열 그 자체 |
 
 설정 파일 하나로 모든 모드를 돌립니다. 각 모드는 필요한 항목만 골라 씁니다.
-(`--help` 에는 `MODE` 목록만 나오고 `TASK` 는 `TEXT` 로 표시되지만, 위 7개가 등록된 전부입니다 — [heartkit/tasks/\_\_init\_\_.py:59-65](heartkit/tasks/__init__.py#L59-L65))
+(`--help` 에는 `MODE` 목록만 나오고 `TASK` 는 `TEXT` 로 표시되지만, 위 7개가 등록된 전부입니다 — [heartkit/tasks/\_\_init\_\_.py:59-65](../../heartkit/tasks/__init__.py#L59-L65))
 
 ---
 
@@ -239,10 +239,10 @@ heartkit -m evaluate -t rhythm -c ./configs/arr-2-eff-sm.json
 ```
 
 > **⚠️ 함정: `val_file` 을 먼저 지워야 합니다.**
-> `configs/arr-2-eff-sm.json` 에는 `"val_file": "val.tfds"` 가 들어 있습니다. `val.tfds` 는 `train` 을 돌려야 생기는 캐시인데, [evaluate.py:32](heartkit/tasks/rhythm/evaluate.py#L32) 는 파일 존재 여부를 확인하지 않고 그냥 `tf.data.Dataset.load()` 를 호출합니다.
+> `configs/arr-2-eff-sm.json` 에는 `"val_file": "val.tfds"` 가 들어 있습니다. `val.tfds` 는 `train` 을 돌려야 생기는 캐시인데, [evaluate.py:32](../../heartkit/tasks/rhythm/evaluate.py#L32) 는 파일 존재 여부를 확인하지 않고 그냥 `tf.data.Dataset.load()` 를 호출합니다.
 > 학습 없이 zoo 모델만 평가하려면 설정에서 `val_file` 과 `test_file` 두 줄을 **삭제**하세요. 그러면 데이터셋에서 테스트셋을 새로 만듭니다.
 
-모델별 URL은 [docs/zoo/](docs/zoo/) 의 각 문서 하단 표에 있습니다.
+모델별 URL은 [docs/zoo/](../../docs/zoo/) 의 각 문서 하단 표에 있습니다.
 
 ---
 
@@ -265,8 +265,8 @@ heartkit -m evaluate -t rhythm -c ./configs/arr-2-eff-sm.json
 
 | 경로 | git 추적 | 설명 |
 | --- | --- | --- |
-| `configs/smoke-test.json` | 신규(untracked) | 5장의 1분 점검용 설정. 필요 없으면 삭제해도 됩니다 |
+| `notes/configs/smoke-test.json` | 커밋됨 | 5장의 1분 점검용 설정. 필요 없으면 삭제해도 됩니다 |
 | `results/smoke-test/` | `.gitignore` 대상 | 점검 실행 결과물 |
-| `SETUP-TROUBLESHOOTING.ko.md` | 신규(untracked) | 이 문서 |
+| `notes/docs/SETUP-TROUBLESHOOTING.ko.md` | 커밋됨 | 이 문서 |
 
 `uv.lock` 의 변경은 이 작업과 무관하게 이전부터 있던 것입니다.

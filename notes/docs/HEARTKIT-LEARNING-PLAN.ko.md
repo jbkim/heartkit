@@ -10,12 +10,12 @@
 ## 0. 진행 상황 요약 (이 문서 작성 시점까지)
 
 - macOS(Apple Silicon)에서 `tensorflow-metal` 플러그인 충돌로 `heartkit`이 실행되지 않던 문제 해결
-  → [SETUP-TROUBLESHOOTING.ko.md](SETUP-TROUBLESHOOTING.ko.md), [configs/smoke-test.json](configs/smoke-test.json)
+  → [SETUP-TROUBLESHOOTING.ko.md](SETUP-TROUBLESHOOTING.ko.md), [configs/smoke-test.json](../configs/smoke-test.json)
 - 합성 데이터(`ecg-synthetic`)로 segmentation 태스크의 `train → evaluate → export` 파이프라인을 1분 스모크 테스트로 검증 완료 (`results/smoke-test/`)
 - Ambiq Model Zoo의 사전학습 rhythm(부정맥) 모델(`arr-2-eff-sm`, EfficientNetV2)을 실데이터(ptbxl 3.7G, lsad 6.1G)로 평가 성공
   - 전체 test set: ACC=0.9841, F1=0.9853
   - confidence threshold(75%) 적용 시: ACC=0.9973, F1=0.9973
-  - 평가 전용 설정 [configs/arr-2-eff-sm-eval.json](configs/arr-2-eff-sm-eval.json), [configs/download-arr-2-eff-sm.json](configs/download-arr-2-eff-sm.json) 작성 (원본 zoo 설정 `configs/arr-2-eff-sm.json`은 AmbiqAI 배포본 그대로 보존 — train 시 val_file 캐시 재현성 때문)
+  - 평가 전용 설정 [configs/arr-2-eff-sm-eval.json](../configs/arr-2-eff-sm-eval.json), [configs/download-arr-2-eff-sm.json](../configs/download-arr-2-eff-sm.json) 작성 (원본 zoo 설정 `configs/arr-2-eff-sm.json`은 AmbiqAI 배포본 그대로 보존 — train 시 val_file 캐시 재현성 때문)
 - 보유 하드웨어 확인: **Apollo510B EVB + MAX86150(모듈 소켓 장착)**
 
 ---
@@ -38,7 +38,7 @@
 
 - [x] download / train / evaluate / export (segmentation, smoke-test)
 - [x] evaluate (rhythm, zoo 모델, 실데이터)
-- [x] **demo** 모드 — `backend: "pc"`로 실행 성공 (`heartkit -m demo -t segmentation -c ./configs/smoke-test.json`) → `results/smoke-test/demo.html`, `demo.png` 생성 확인. R-peak 검출, HRV(시간/주파수영역), Poincare plot까지 한 번에 리포트됨. (smoke-test 모델은 2 epoch만 학습해 결과 자체는 무작위 수준 — 파이프라인 동작 확인용)
+- [x] **demo** 모드 — `backend: "pc"`로 실행 성공 (`heartkit -m demo -t segmentation -c ./notes/configs/smoke-test.json`) → `results/smoke-test/demo.html`, `demo.png` 생성 확인. R-peak 검출, HRV(시간/주파수영역), Poincare plot까지 한 번에 리포트됨. (smoke-test 모델은 2 epoch만 학습해 결과 자체는 무작위 수준 — 파이프라인 동작 확인용)
 
 ### 레이어 C. 경량화 산출물 해석
 
