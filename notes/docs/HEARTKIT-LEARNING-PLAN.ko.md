@@ -68,9 +68,9 @@
 아래 "2. 펌웨어 아키텍처 관련 발견" 참고 후 진행.
 
 - [x] neuralSPOT 조사 → `rpc_pc_to_evb`는 해당 없음 확인, `AmbiqAI/tileio-demos`가 실제 대상임을 특정
-- [ ] `tileio-demos` 클론 및 Apollo510B 빌드 타깃 시도
-- [ ] MAX86150 배선 확인 (Apollo510B EVB 기준 — 구식 문서의 Apollo4 핀맵 재사용 불가)
-- [ ] 빌드/플래싱 성공 시 Tileio 앱으로 실물 데모 확인 (heartkit CLI의 `backend: "evb"` 경로가 아니라 Tileio 앱 기반 경로로 대체됨에 유의)
+- [x] `tileio-demos` 클론 및 Apollo510B 빌드 타깃 시도 → **`main.bin`(940KB) 빌드 성공** (2026-09-02, 자세한 내용은 아래 "3. Apollo510B 빌드 성공 기록" 참고)
+- [ ] MAX86150 배선 확인 (Apollo510B EVB 기준 — 구식 문서의 Apollo4 핀맵 재사용 불가) — 다음 단계
+- [ ] 실제 EVB에 J-Link로 플래싱 → Tileio 앱으로 실물 데모 확인 (heartkit CLI의 `backend: "evb"` 경로가 아니라 Tileio 앱 기반 경로로 대체됨에 유의) — 다음 단계
 
 ### 레이어 E. 선택 (시간 되면)
 
@@ -139,24 +139,57 @@ SDK(neuralSPOT) 자체는 Apollo510B를 완전히 지원하지만, `tileio-demos
 
 ### 확인이 더 필요한 부분
 
-- `tileio-demos/heartkit` 소스를 새 nest(`apollo510_evb`)에 연결했을 때 실제로 컴파일되는지, 안 된다면 에러 범위(API 몇 곳만 손보면 되는지, 구조적으로 안 맞는지)
 - Apollo510B EVB에서 MAX86150 배선 (구식 `evb-setup.md`의 J17/J11 핀맵은 Apollo4 EVB 기준 — Apollo510B 보드 실물의 실크스크린/핀아웃을 직접 확인 필요)
 - Tileio 앱(iOS/웹) 없이 CLI만으로 결과를 볼 방법이 있는지, 아니면 이 경로는 Tileio 앱 사용이 필수인지
 
 ---
 
+## 2-1. Apollo510B 빌드 성공 기록 (2026-09-02)
+
+`tileio-demos/heartkit`를 `apollo510b_evb`(BLE 버전)로 실제 빌드해서 **`main.bin`(940KB) 생성까지 성공**했다. 9번째 시도 만에 완주. 겪은 문제와 고친 내용을 순서대로 기록 — 다른 보드/SDK 조합으로 이식할 때도 같은 패턴이 반복될 가능성이 높다.
+
+### 사전 준비: BLE(무선) 지원 버전 찾기
+
+- `apollo510_evb`(“b” 없음, §2에서 먼저 성공시킨 버전)로는 BLE 라이브러리(`ns-ble`, cordio)가 아예 안 빌드됨 — `neuralspot_config.mk`의 `BLE_PRESENT` 판정 로직이 `EVB` 이름에 `blue`가 들어가거나 `PLATFORM=apollo510b_evb`일 때만 BLE를 켬.
+- `PLATFORM=apollo510b_evb`(AS_VERSION 기본값 R5.3.0)로 시도 → `am_bsp.h: No such file` — R5.3.0 패키지엔 `apollo510b_evb`용 보드 BSP가 없음.
+- 벤더링된 다른 AmbiqSuite 버전들(`R5.1.0_rc27`, `R5.2.0`, `R5.2.alpha.1.1`, `R5.3.0`)을 전수 확인 → **`R5.1.0_rc27`에만 `boards/apollo510b_evb/` 존재**. `AS_VERSION=R5.1.0_rc27`로 지정하니 neuralSPOT 베이스 SDK(BLE 포함) 빌드 성공.
+
+### 실제 앱 소스 연결 후 겪은 에러들 (순서대로)
+
+1. **`am_devices_led.c` 컴파일 에러** — `AM_HAL_GPIO_OUTPUT` 등 구식(Apollo1/2 시절) GPIO enum을 쓰는 `#else`(최종 폴백) 분기로 떨어짐. 이 파일은 `#if defined(AM_APOLLO4_API)`(모던 API) / `#elif AM_APOLLO3_GPIO` / `#else`(구식) 3단 분기인데 Apollo5는 어디에도 안 걸림.
+   → **수정**: `am_mcu_apollo.h`가 무조건 정의하는 `AM_PART_APOLLO5_API` 매크로를 찾아서 `#if defined(AM_APOLLO4_API) || defined(AM_PART_APOLLO5_API)`로 가드 확장 (6곳). 앱 소스(`tileio-demos/heartkit/src/`) 파일이라 직접 수정 가능.
+2. **`hci_drv_cooper.h: No such file`** — neuralSPOT의 `ns_ble.h`가 BLE 라디오 드라이버를 칩별로 분기하는데(`AM_PART_APOLLO5B`→EM9305, `AM_PART_APOLLO510L`→510L, 그 외 전부→Cooper), 아무 매크로도 안 넘겨서 기본값(Cooper, Apollo4용 구형 칩)으로 떨어짐. Apollo510B의 실제 라디오는 EM9305.
+   → **수정**: 프로젝트 `make/local_overrides.mk`에 `DEFINES += AM_PART_APOLLO5B` 추가.
+3. **`ns_lp_printf` undefined reference (1차 오진)** — `AM_PART_APOLLO5B`를 정의했더니 `ns-harness.a`에 `ns_lp_printf` 심볼이 없음. **"구현이 없나 보다" 하고 소스의 스텁 분기를 억지로 열었다가 타입 충돌 에러만 새로 만듦.** 알고 보니 헤더(`ns_ambiqsuite_harness.h`)가 `AM_PART_APOLLO5B`일 때 `#define ns_lp_printf am_util_stdio_printf`로 **매크로 별칭 처리**하는 구조라 원래 구현 자체가 필요 없었음 — **진짜 원인은 nest(라이브러리 `.a`)를 빌드할 때 `AM_PART_APOLLO5B`를 안 넘겨서 매크로가 없는 상태로 컴파일된 것.**
+   → **수정**: 잘못된 소스 수정을 되돌리고, `neuralSPOT/make/local_overrides.mk`에도 동일하게 `DEFINES += AM_PART_APOLLO5B`를 추가해서 **nest 빌드 자체를 다시** 함(앱 레벨에만 매크로를 주는 걸론 부족 — 라이브러리와 앱이 같은 매크로로 일관되게 컴파일돼야 함).
+4. **`linker_script.ld: No such file`** — 앱 최상위 `Makefile`이 옛날 방식(`linker_script.ld` 고정 파일명)을 기대하는데, Apollo5는 부트로더 모드별로 `linker_script_nbl.ld`/`_sbl.ld`/`_itcm_sbl.ld` 3종으로 쪼개져 있음.
+   → **수정**: 처음엔 `nbl`(no bootloader)로 복사했다가 다음 에러(`_ssram_bss` 등 심볼 없음)로 틀렸다는 걸 알게 됨 → **`sbl`(secure bootloader) 버전이 정답**이었음 (neuralSPOT 자체 템플릿 주석에 `BOOTLOADER := sbl` 힌트가 이미 있었음). `BOOTLOADER=sbl`을 nest/앱 양쪽 빌드에 지정하고 해당 파일을 `linker_script.ld` 이름으로 복사.
+5. **`__set_MSPLIM`/`__set_PSPLIM` undefined reference** — 실제 원인은 엉뚱한 곳: **앱 빌드가 `-mcpu=cortex-m4`로 컴파일되고 있었음** (Apollo510B인데 M55가 아니라 M4!). `make nest`가 프로젝트에 복사해주는 `make/neuralspot_config.mk`가 **neuralSPOT 소스 저장소의 실제 최신 버전(395줄)과 다른, 훨씬 오래된 축소판(240줄)** 이었고 여기엔 `ARCH=apollo5 → CPU=cortex-m55` 매핑 로직 자체가 없어서 기본값(cortex-m4)으로 떨어짐. (CMSIS 헤더의 `__set_MSPLIM`이 `__ARM_ARCH_8M_MAIN__`이 정의된 경우에만 있는데, cortex-m4로 컴파일하니 이 매크로 자체가 안 생김 — 겉으로는 CMSIS 헤더 문제처럼 보였지만 진짜 원인은 CPU 아키텍처 자체가 틀렸던 것.)
+   → **수정**: `make nest`가 복사해준 `make/neuralspot_config.mk`, `neuralspot_toolchain.mk`, `jlink.mk`를 nest 산출물이 아니라 **neuralSPOT 소스 저장소(`/Users/jb/github/neuralSPOT/make/`)의 실제 최신 파일로 교체**. (`helpers.mk`는 앱 고유 빌드 규칙이라 그대로 유지)
+6. 클린 리빌드 → **에러 0건, `main.axf`/`main.bin` 생성 성공.**
+
+### 이 삽질에서 배운 패턴
+
+- **"undefined reference" 에러가 항상 그 심볼이 진짜로 안 만들어졌다는 뜻은 아니다** — 매크로 치환(`#define X Y`)으로 이름이 완전히 다른 심볼로 바뀌는 경우, 컴파일 시점에 매크로 조건이 안 맞으면 엉뚱한 이름으로 참조가 남는다 (3번 사례).
+- **"undefined reference"가 사실은 아키텍처 자체가 잘못 컴파일된 결과일 수 있다** — 5번 사례처럼, CMSIS 헤더 함수 하나가 안 잡히는 걸 그 함수 자체의 문제로 오인하기 쉽지만, `-mcpu` 플래그부터 의심해볼 가치가 있음.
+- **`make nest`가 만들어주는 프로젝트 스켈레톤은 "그 시점에 고정된 스냅샷"이지, SDK 소스 저장소와 항상 동기화되지 않는다** — 최신 기능(새 보드의 CPU 매핑 등)을 쓰려면 nest 산출물보다 소스 저장소의 최신 `make/*.mk`를 직접 쓰는 게 안전.
+- 확실치 않은 매크로 조건 수정은 **먼저 헤더 전체를 읽고 "왜 이 분기가 존재하는지" 이해한 뒤에** 해야 한다 (3번에서 헤더를 안 보고 소스만 보고 오진했던 게 시간 낭비의 원인).
+
+---
+
 ## 3. 다음 단계
 
-> **결정 (2026-08-28)**: Apollo510B 실물 이식(레이어 D)은 상당한 임베디드 포팅 작업으로 확인되어 잠시 보류. **레이어 A(구조 분석) → B(demo PC 백엔드) → C(경량화 해석)를 먼저 진행**하기로 함. 아래 목록은 D로 돌아올 때의 재개 지점.
+> **결정 (2026-08-28)**: Apollo510B 실물 이식(레이어 D)은 상당한 임베디드 포팅 작업으로 확인되어 잠시 보류, 레이어 A~C 먼저 진행.
+> **갱신 (2026-09-02)**: 레이어 D 재개 → `tileio-demos/heartkit`를 `apollo510b_evb`(BLE)로 **빌드 성공** (`main.bin` 940KB, §2-1 참고). 남은 건 실물 플래싱/배선 검증.
 
-
-1. ~~`AmbiqAI/neuralSPOT` 클론~~ — 완료. `rpc_pc_to_evb`는 범용 전송 데모일 뿐 heartkit 프로토콜과 무관함을 확인, 폐기
-2. `AmbiqAI/tileio-demos` 클론 (`--recurse-submodules`, `heartkit`/`neuralspot` 서브모듈 포함)
-3. `tileio-demos/heartkit`를 `PLATFORM=apollo510b_evb`(정확한 이름은 `make` 도움말/neuralSPOT PLATFORM 목록에서 확인)로 빌드 시도 — 공식 미지원 보드이므로 실패 가능성 있음, 실패 시 에러 로그로 원인(드라이버 미포팅 vs 단순 설정 누락) 판별
-4. 되면: 실제 플래싱 → Tileio 앱(iOS/웹)으로 대시보드 연결하여 실물 데모 확인
-5. 안 되면: 대안 두 가지
-   - (a) `backend: "pc"`로 데모까지만 학습 목적 달성하고, EVB 실습은 "코드 리딩 + 아키텍처 이해"로 대체 (레이어 D를 코드 스터디로 전환)
-   - (b) `tileio-demos/heartkit`를 Apollo510B용으로 직접 포팅 시도 (별도의 상당한 임베디드 작업 — 이번 학습 목적 범위를 넘을 수 있으므로 착수 전 사용자와 범위 재확인)
+1. ~~`AmbiqAI/neuralSPOT` 클론~~ — 완료
+2. ~~`AmbiqAI/tileio-demos` 클론~~ — 완료
+3. ~~`tileio-demos/heartkit` 빌드~~ — 완료 (`apollo510b_evb`, AS_VERSION=R5.1.0_rc27, BOOTLOADER=sbl, 6개 이슈 수정 — §2-1)
+4. ~~J-Link로 `main.bin` 플래싱~~ — **완료 (2026-09-03)**. `make PLATFORM=apollo510b_evb deploy` 성공. J-Link 커맨더로 확인한 실제 칩 파트넘버 `AP510NFA-CBR`(SWO 뷰어에서는 `AP510NFA-CBR`), `Cortex-M55 identified`, 96105 kHz 구동 — 타깃과 일치.
+5. ~~MAX86150 배선 확인~~ — **완료, 배선 문제 없음 확인**. 사용자가 제공한 공식 스키마틱(`AP510BEVB_Rev2.0_Schematic_Prints.pdf`, Sheet 9 "Audio and Click IF")으로 확인: MAX86150(ECG 6 Click)은 **표준 mikroBUS ClickBoard 소켓(J14+J15)에 이미 꽂혀 있는 상태** — 예전 Apollo4 문서처럼 점퍼 와이어로 수동 배선하는 게 아니라 규격 소켓에 꽂기만 하면 됨. 스키마틱의 `SCL_GP8`/`SDA_GP9` 매핑이 코드에서 확인했던 IOM1(SCL=GPIO8, SDA=GPIO9)과 **정확히 일치** — 배선/핀 설계 자체는 문제가 없다는 게 이중으로 검증됨.
+6. **[진행 중, 막힘] 부팅/동작 확인** — 배선이 맞는 걸로 확인됐는데도 SWO에 아무 로그가 안 찍힘. `ns_itm_printf_enable()`을 `main()` 맨 앞으로 옮기고 각 초기화 단계마다 `DEBUG: X OK` 프린트를 추가해서 재플래싱까지 했으나, **SWO 뷰어 도구(`JLinkSWOViewer`) 자체가 "Could not start CPU core" / "Could not connect to target" 등으로 반복적으로 연결 실패** — J-Link 커맨더(reset/flash)는 정상 동작하는데 별도 SWO 뷰어 GUI 바이너리만 불안정함 (macOS 환경/타이밍 이슈로 추정, 원인 미확정). 여러 번 재시도했지만 로그를 못 건짐.
+   - 참고: J13 점퍼(mikroBUS IO 전압, 기본 3.3V)와 레벨시프터 `LVL_EN` 신호는 스키마틱상 고정 저항(R98)으로 걸려있어 보여 펌웨어 개입 없이 자동 활성화될 것으로 보이나 미검증
+7. **[다음] SWO 대안 확보 또는 Tileio 앱으로 직접 검증** — 옵션: (a) Segger Ozone(정식 디버거 GUI)으로 직접 SWO 확인, (b) SWO 대신 UART로 출력 경로 변경, (c) SWO 디버깅은 보류하고 곧장 Tileio 앱(iOS/웹) BLE 연결을 시도 — 이게 최종 성공 기준이라 SWO 없이도 판단 가능
 
 ---
 
@@ -167,7 +200,7 @@ SDK(neuralSPOT) 자체는 Apollo510B를 완전히 지원하지만, `tileio-demos
 - [x] quantization format 2종 이상 비교하여 크기·정확도 트레이드오프를 수치로 설명 가능 (smoke-test 3종 + arr-2-eff-sm FP32/INT8, §1 레이어 C)
 - [x] FLOPS/파라미터 수치를 zoo 문서와 대조하여 최소 1개 모델 검증 (arr-2-eff-sm: 파라미터 18.5K≈18K, FLOPS 1.23M≈1.2M 일치)
 - [x] `model_buffer.h` TFLM 헤더 구조 설명 가능 (TFL3 매직/길이 상수/정렬은 펌웨어 책임)
-- [ ] Apollo510B에 heartkit 데모를 빌드/플래싱하고 `evb` 백엔드(또는 Tileio 앱 경로)로 실물 데모 실행 성공 — **보류 중** (§2~3 참고: `AmbiqAI/tileio-demos`의 `apollo510_evb` 플랫폼용 앱 이식이 남은 과제, neuralSPOT SDK 자체 지원은 확인됨)
+- [x] Apollo510B에 heartkit 데모 **빌드** 성공 (`apollo510b_evb`, `main.bin` 940KB — §2-1). **플래싱/실물 데모는 아직** — MAX86150 배선 확인과 J-Link 플래싱이 남음
 - [ ] (선택) beat/denoise 등 다른 태스크 스모크 테스트 1회 이상 — 미착수
 
 ---
